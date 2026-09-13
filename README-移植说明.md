@@ -2,6 +2,8 @@
 
 > 用途：把「CNVD 通用型未授权漏洞广扫」这套 skill 完整搬到另一台电脑使用。
 > 打包日期：2026-09-13 ｜ 适用：Windows（脚本本身跨平台，Linux/macOS 亦可跑）
+>
+> 📖 文档导航：[仓库主页](README.md) ｜ [使用教程](docs/使用教程.md) ｜ [规则编写指南](docs/规则编写指南.md) ｜ [FAQ](docs/FAQ.md) ｜ [更新日志](CHANGELOG.md) ｜ [English](README_EN.md)
 
 ---
 
