@@ -1,0 +1,5 @@
+﻿ip,port,rule_id,rule_name,severity,type,url,hits,mock,needs_review,cloud_suspect,isp,org,as,snippet,note
+203.0.113.10,80,rtsp-unauth,RTSP 视频流未授权观看,high,rtsp,rtsp://203.0.113.10:554/,rtsp200,False,False,,,,,OPTIONS+DESCRIBE 200 视频流未授权,命中=可无认证拉流
+203.0.113.24,80,config-json,Config.json 未授权读取,high,http,http://203.0.113.24/Config.json,match,False,False,,,,,"{""devId"":""..."",""p2pUid"":""ZWP2P-XXXXX""}",空壳/404 已排除
+203.0.113.77,554,rtsp-unauth,RTSP 视频流未授权观看,high,rtsp,rtsp://203.0.113.77:554/live,rtsp200,False,False,,,,,DESCRIBE 200 SDP v=0 m=video,须 SETUP/PLAY 实拉确认
+192.0.2.15,80,ftp-anon,FTP 匿名登录,high,ftp,ftp://192.0.2.15:21/,ftp230,False,False,,,,,230 Anonymous login ok,

@@ -1,0 +1,31 @@
+# 敏感文件
+api_keys.json
+
+# 运行产物（模式锚定根目录，避免误伤 示例产出/ 与 skills/）
+/findings*.csv
+/targets*.csv
+/verify_report*.json
+/verify_input.csv
+/probe_bodies.json
+/evidence_queue.json
+*.log
+
+# 例外：示例产出里的脱敏样例是文档的一部分，需要入库
+!示例产出/
+!示例产出/findings_样例-脱敏.csv
+!示例产出/targets_样例-脱敏.csv
+
+# 工作目录
+/output/
+/work/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 系统文件
+.DS_Store
+Thumbs.db

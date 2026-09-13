@@ -1,0 +1,60 @@
+{
+  "_comment": "EWS 打印机线端点字典 (2026-08-22)。来源: Lexmark EWS 实战验证的 5 个未授权端点(CNVD 驳回因重复, 但端点本身对其他 EWS 打印机厂可迁移)。判据: HTTP 双差分(脚本内建)+match 字段验证。",
+  "rules": [
+    {
+      "id": "ews-vnc-panel",
+      "name": "VNC 远程面板配置未授权",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/cgi-bin/dynamic/printer/config/remote_oppanel_config.html"],
+      "match_any": ["vnc", "oppanel", "remote"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
+      "fake_hints": [],
+      "min_len": 100,
+      "note": "未授权查看/修改 VNC 远程面板配置 → 高危(可开远程接管面板)"
+    },
+    {
+      "id": "ews-users-mgmt",
+      "name": "账户管理页未授权",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/cgi-bin/dynamic/printer/config/secure/auth/users.html"],
+      "match_any": ["user", "role", "permission"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
+      "fake_hints": [],
+      "min_len": 100,
+      "note": "未授权访问账户管理 → 高危(可创建账户持久化)"
+    },
+    {
+      "id": "ews-backup-pwd",
+      "name": "备份密码功能未授权",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/cgi-bin/dynamic/printer/config/secure/auth/backuppwd.html"],
+      "match_any": ["password", "pwd", "backup", "recover"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
+      "fake_hints": [],
+      "min_len": 100,
+      "note": "备份密码/万能钥匙功能未授权暴露 → 高危"
+    },
+    {
+      "id": "ews-firmware-update",
+      "name": "固件升级接口未授权",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/cgi-bin/dynamic/config/gen/code_update.html"],
+      "match_any": ["firmware", "update", "upload", "file"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
+      "fake_hints": [],
+      "min_len": 100,
+      "note": "固件升级上传表单未授权可见 → 高危(可刷恶意固件)"
+    },
+    {
+      "id": "ews-config-export",
+      "name": "安全配置导出未授权",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/cgi-bin/exportfile/printer/config/secure/authfile.ucf"],
+      "match_any": [],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404"],
+      "fake_hints": [],
+      "min_len": 50,
+      "note": "安全配置文件(.ucf 含用户/密码哈希)可未授权下载 → needs_review 人工确认内容, 含口令=高危"
+    }
+  ]
+}

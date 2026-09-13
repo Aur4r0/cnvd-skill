@@ -1,0 +1,26 @@
+{
+  "_meta": {"line": "access-C Dr.ID(IIS/ASP.NET栈)", "date": "2026-08-24", "source": "探针agent 16样本机归因", "dedup_boundary": "CVE-2020-3933用户枚举/3934预认证SQLi/3935cookie明文/2022-26671硬编码凭据——命中即弃"},
+  "rules": [
+    {
+      "id": "drid_fingerprint",
+      "name": "Dr.ID門禁考勤系統产品确认(IIS栈)",
+      "type": "http",
+      "method": "GET",
+      "paths": ["/"],
+      "match_any": ["drid.com.tw"],
+      "min_len": 500,
+      "severity": "review",
+      "note": "非洞,资产归属校验"
+    },
+    {
+      "id": "drid_unauth_aspx",
+      "name": "Dr.ID-o_*.aspx业务页未授权直连候选",
+      "type": "http",
+      "method": "GET",
+      "paths": ["/AT/AT/js/o_AddNewForm.aspx", "/AT/js/o_AddNewForm.aspx", "/AT/AT/js/o_Page.aspx", "/AT/js/o_Page.aspx"],
+      "exclude_any": ["登入畫面"],
+      "severity": "review",
+      "note": "无cookie直连AJAX业务处理页;返回业务内容而非登录跳转=未授权访问候选(新面,区别于已CVE的用户枚举)"
+    }
+  ]
+}

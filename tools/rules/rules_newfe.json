@@ -1,0 +1,57 @@
+{
+  "_comment": "新前端线(NVR+IPC)专属规则 2026-08-23。含 Config.json 未授权 + 超级密码兑换码泄露 + 通用面。",
+  "rules": [
+    {
+      "id": "config-uid",
+      "name": "Config.json 未授权读取(ZWP2P UID)",
+      "type": "http", "severity": "mid", "method": "GET",
+      "paths": ["/Config.json"],
+      "match_any": ["zwp2p", "uid", "devicetype", "channel", "YLT"],
+      "exclude_any": ["login", "unauthorized", "401", "404"],
+      "fake_hints": [],
+      "min_len": 30,
+      "note": "未授权读设备 P2P UID/拓扑, 中危"
+    },
+    {
+      "id": "superpw-qr",
+      "name": "超级密码兑换码未授权泄露",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/Security/RecoverPasswordBySuperPassword"],
+      "match_any": ["SuperPasswordQRCode", "superpw", "PasswordRule"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404", "location.href"],
+      "fake_hints": [],
+      "min_len": 50,
+      "note": "未授权返回云视通超级密码兑换码(p6scloud://superpw/设备ID_时间戳), 配合官方兑换流程可重置密码 → 后台接管, 高危"
+    },
+    {
+      "id": "saveq-open",
+      "name": "密码安全问题找回接口未授权",
+      "type": "http", "severity": "mid", "method": "GET",
+      "paths": ["/Security/RecoverPasswordBySaveQuestion"],
+      "match_any": ["SaveQuestionList", "PasswordRule"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404"],
+      "fake_hints": [],
+      "min_len": 50,
+      "note": "未授权访问密码找回接口, 中危"
+    },
+    {
+      "id": "rtsp-unauth",
+      "name": "RTSP 视频流未授权观看",
+      "type": "rtsp", "severity": "high", "port": 554,
+      "note": "DESCRIBE 200+SDP(v=0+m=video) = 未授权拉流, 高危"
+    },
+    {
+      "id": "onvif-info",
+      "name": "ONVIF 未授权设备信息 (IPC)",
+      "type": "http", "severity": "mid", "method": "POST",
+      "content_type": "application/soap+xml",
+      "body": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body><GetDeviceInformation xmlns=\"http://www.onvif.org/ver10/device/wsdl\"/></s:Body></s:Envelope>",
+      "paths": ["/onvif/device_service"],
+      "match_any": ["manufacturer", "serialnumber", "firmwareversion", "model"],
+      "exclude_any": ["401", "unauthorized", "sender"],
+      "fake_hints": [],
+      "min_len": 50,
+      "note": "IPC ONVIF 未认证返回设备信息, 中危"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "id": "superpw-qr",
+      "name": "超级密码兑换码未授权泄露",
+      "type": "http", "severity": "high", "method": "GET",
+      "paths": ["/Security/RecoverPasswordBySuperPassword"],
+      "match_any": ["SuperPasswordQRCode"],
+      "exclude_any": ["login", "unauthorized", "401", "403", "404"],
+      "fake_hints": [],
+      "min_len": 50,
+      "note": "未授权返回 SuperPasswordQRCode"
+    }
+  ]
+}

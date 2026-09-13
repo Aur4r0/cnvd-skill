@@ -1,0 +1,27 @@
+{
+  "_meta": {"line": "access-D 中興保全Dr.ID(Tomcat/JSP栈)", "date": "2026-08-24", "source": "探针agent 16样本机归因", "dedup_boundary": "同Dr.ID四条老CVE,命中即弃"},
+  "rules": [
+    {
+      "id": "secom_fingerprint",
+      "name": "中興保全Dr.ID产品确认(Tomcat栈)",
+      "type": "http",
+      "method": "GET",
+      "paths": ["/security/auth.do?actionType=index"],
+      "match_any": ["門禁考勤"],
+      "min_len": 300,
+      "severity": "review",
+      "note": "非洞,资产归属校验"
+    },
+    {
+      "id": "tomcat_manager_exposed",
+      "name": "Tomcat管理端未授权暴露",
+      "type": "http",
+      "method": "GET",
+      "paths": ["/manager/html", "/host-manager/html"],
+      "match_any": ["tomcat web application manager", "deploy directory", "server status"],
+      "min_len": 200,
+      "severity": "high",
+      "note": "Apache-Coyote老版本Tomcat管理台裸奔=可部署war包RCE级"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "_meta": {"line": "access-A 门禁专家(白牌嵌入式固件)", "date": "2026-08-24", "source": "探针agent归因: 登录页HTML预填默认账密 value=abc/654321, 表单POST到ACT_ID_1, 隐藏域logId=20101222, 三国三台页面逐字节一致", "dedup_boundary": "厂商未知无公开条目; 与CVE-2022-26671(Dr.ID硬编码)不同厂商不同产品"},
+  "rules": [
+    {
+      "id": "menjin_fingerprint",
+      "name": "门禁专家产品确认(logId=20101222固件指纹)",
+      "type": "http",
+      "method": "GET",
+      "paths": ["/"],
+      "match_any": ["act_id_1"],
+      "min_len": 500,
+      "severity": "review",
+      "note": "非洞,固件归属校验"
+    },
+    {
+      "id": "menjin_prefill_cred",
+      "name": "门禁专家-登录页预填默认账密(CWE-798)",
+      "type": "http",
+      "method": "GET",
+      "paths": ["/"],
+      "match_any": ["654321"],
+      "exclude_any": ["404", "not found"],
+      "min_len": 800,
+      "severity": "high",
+      "note": "登录页HTML明文预填默认账号abc+密码654321,任何人查看源码即得凭据;需同IP命中menjin_fingerprint才有效"
+    }
+  ]
+}

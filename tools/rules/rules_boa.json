@@ -1,0 +1,41 @@
+{
+  "_comment": "Boa 大组专属规则 (2026-08-22, zwcloud 固件, 基于单台实测确认的未授权面)。接口面封闭(CGI 全 502/404), 只打已确认面+协议面。",
+  "rules": [
+    {
+      "id": "config-json",
+      "name": "Config.json 未授权读取(设备标识/ZWP2P UID)",
+      "type": "http", "severity": "mid", "method": "GET",
+      "paths": ["/Config.json"],
+      "match_any": ["zwp2p", "uid", "devicetype", "channel"],
+      "exclude_any": ["login", "unauthorized", "401", "404"],
+      "fake_hints": [],
+      "min_len": 30,
+      "note": "未授权读设备 P2P UID/通道拓扑(单台实测: DeviceType+ZWP2P.UID+AppUrl), 中危"
+    },
+    {
+      "id": "onvif-info",
+      "name": "ONVIF 未授权设备信息",
+      "type": "http", "severity": "mid", "method": "POST",
+      "content_type": "application/soap+xml",
+      "body": "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\"><s:Body><GetDeviceInformation xmlns=\"http://www.onvif.org/ver10/device/wsdl\"/></s:Body></s:Envelope>",
+      "paths": ["/onvif/device_service"],
+      "match_any": ["manufacturer", "serialnumber", "firmwareversion", "model"],
+      "exclude_any": ["401", "unauthorized", "not authorized", "sender"],
+      "fake_hints": [],
+      "min_len": 50,
+      "note": "ONVIF GetDeviceInformation 未认证返回型号/序列号/固件版本, 中危"
+    },
+    {
+      "id": "rtsp-unauth",
+      "name": "RTSP 视频流未授权观看",
+      "type": "rtsp", "severity": "high", "port": 554,
+      "note": "OPTIONS+DESCRIBE 均 200 = 无认证可拉流, 高危(隐私)"
+    },
+    {
+      "id": "ftp-anon",
+      "name": "FTP 匿名登录",
+      "type": "ftp", "severity": "mid", "port": 21,
+      "note": "anonymous 230 → 按目录内容定级: 含配置/固件=高危; 空目录=降级记录"
+    }
+  ]
+}
