@@ -23,6 +23,8 @@ A workflow toolkit for discovering **generic unauthenticated vulnerabilities** a
 
 The core idea: **horizontal coverage at the endpoint level, not firmware-level deep dives.** Pick a niche product line, batch-verify similar devices with prebuilt dictionaries — 10+ hits give you enough instances for one generic vulnerability report.
 
+**Run semantics (v2.1)**: **no stopping without output** — the only legal stop condition is having landed at least one submission-ready finding (10+ hits + no duplicate + re-verified + report on disk). Switching product lines is not stopping; keep cycling until a finding lands or the user says stop. Compliance rules stay fully enforced during continuous operation.
+
 ## Workflow
 
 ```

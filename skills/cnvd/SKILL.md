@@ -1,19 +1,20 @@
 ---
 name: cnvd
-description: CNVD 通用型未授权漏洞广扫 —— 冷门产品线 × 预置端点字典 × 批量验证，命中≥10 即一个洞，一晚滚 2-3 条线。说"cnvd"或"挖cnvd"触发。
+description: CNVD 通用型未授权漏洞广扫 —— 冷门产品线 × 预置端点字典 × 批量验证，命中≥10 即一个洞；不出可提交洞绝不停。说"cnvd"或"挖cnvd"触发。
 license: MIT
-compatibility: Requires filesystem-based agent with bash, Python 3.8+, and internet access.
+compatibility: Requires filesystem-based agent with bash, Python 3.10+, and internet access.
 allowed-tools: Bash Read Write Edit Grep Glob Task WebFetch WebSearch
 metadata:
   user-invocable: "true"
-  version: "2.0"
+  version: "2.1"
 ---
 
-# cnvd 未授权广扫（v2.0 · 2026-08-22 重写）
+# cnvd 未授权广扫（v2.1 · 2026-09-13 增停机语义）
 
 > 定位：**广扫出量** —— 规则预置（AutoCVE 的快）+ 端点迁移（Lexmark 的量）+ 冷门筛选（大厂全重复的教训）。
 > 触发：说「cnvd / 挖cnvd」；退出：说「恢复 / 退出cnvd」。
 > v1.0（深挖单厂商 3-5 天）已被实战推翻：单固件深挖 3 小时才两洞，成本全在测绘/厂商反查/抽验/截图仪式上，且大厂必撞重复。
+> v2.1（2026-09-13 定）：**停机语义反转为「无产出不停」**——见 §0.3/§1.5/§7。
 
 ## 0. 三原则（全部来自实战教训）
 
@@ -21,7 +22,21 @@ metadata:
 2. **冷门优先**：大厂 = 重复重灾区（Lexmark 三报告全被 CNVD-2021-45229/45228/75312 驳回）。§3 黑名单 + 查重前移，只挑「有存量但不被关注」的厂商。
 3. **命中≥10 即走**：案例 10 个就是达标线，不放大、不铺量、不截图（用户自复现）。
 
-## 1. 流程（一产品线一循环，一晚 2-3 线）
+### 0.3 停机语义：无产出不停（v2.1 · 2026-09-13 定）
+
+**唯一合法停机条件 = 已挖到 ≥1 个「可提交级」洞并落盘。**
+可提交级 = 命中 ≥10 台 + 查重 no_duplicate + 独立复验 confirmed + 报告落盘 `Desktop\cnvd\<厂商>\<日期>\`。
+在此之前，**任何"收工"都不成立**——包括：
+
+- 一轮循环没出货 → 换下一条产品线，继续（换线 ≠ 收工）
+- 候选池挑剩了 → 回头从原 findings 里换 rule / 换端点 / 换指纹细分再筛（穷尽再穷尽一次）
+- 通道额度用尽/限流 → 记断点，恢复后从断点续跑（进度落 progress.md）
+- 多条线都 duplicate → §1.1 查重前移加严（条目 >1 就跳），继续找下一条冷门线
+- 报告写完 → 那是里程碑不是终点：继续下一条线，**直到用户喊停**（"停/收工/恢复"）
+
+**边界**：本原则只约束"什么时候可以停"。合规红线（§5：只读/间隔/不下载/合法目标）在连续作业下**执行强度不变**，红线优先于本原则——红线冲突时立即停下问用户，不算违反。
+
+## 1. 流程（一产品线一循环，循环至出洞为止）
 
 ```
 准备(10min) → 扫描(脚本) → 查重+抽验(1 agent) → 报告(主对话) → 下一线
@@ -50,16 +65,27 @@ metadata:
 - 红线：只读 GET/OPTIONS/DESCRIBE；单 IP 间隔 ≥1s；不下载敏感文件
 
 ### 1.4 报告（主对话）
-- 每洞两版：提交版 + 复现版，命名 `<目标>-<日期>-<等级>-<漏洞名>[-提交版|-复现版].md`（hark 命名格式），**产出报告统一放桌面：`Desktop\cnvd\<厂商>\<日期>\`**（即用户桌面下的 cnvd 文件夹，Windows 直接可用；Linux/macOS 对照本机桌面路径）
+- 每洞两版：提交版 + 复现版，命名 `<目标>-<日期>-<等级>-<漏洞名>[-提交版|-复现版].md`（hark 命名格式），**固定落 `C:\Users\Administrator\Desktop\cnvd\<厂商>\<日期>\`**（用户 2026-08-22 定，覆盖旧企业src 路径）
 - 案例 IP 全量导 `全部案例IP.txt` 同目录（分层：批量命中 / 抽验确认 / confirmed）
+- **可提交级判定**（v2.1 明文化）：命中 ≥10 台 + 查重 no_duplicate + 独立复验 confirmed + 报告落盘 = 可提交级。三条件缺一不可，缺则回到 §1 继续循环，不算停机
 - **定级交用户拍板**（CLAUDE.md 铁律），不擅自定义
 - 报告写「与历史漏洞差异」段（型号/路径/参数差异点，应对未公开重复）
 - 截图：默认不做，用户自己复现看
 
-### 1.5 循环
-一条线完成（报告落盘）→ 归档 → 下一条线。每晚目标 2-3 条线 / 3-5 洞。
+### 1.5 循环（无产出不停 · v2.1）
+一条线走完 → 分出两种结果：
+- **出货**（报告落盘）→ 归档 → 继续下一条线（里程碑，不是终点）
+- **没出货**（命中 <10 / 全 duplicate / 无端点可打）→ 换下一条线继续，**不许以"今晚够数了/没线了"收工**
 
-## 2. 端点字典库（核心资产 · `<包根>/tools/rules/`）
+理论停机只有三种：① 已出货且用户喊停 ② 用户喊停 ③ 撞 §5 红线需用户裁决。
+诚实条款：若连续多轮确实挖不到可提交洞，**不许谎报出货**（把 review/mock 项包装成 confirmed 提交 = 事故）；正确做法是如实报「已穷尽 N 条线未出洞 + 剩下的可行方向」，再由用户决定加范围还是停。
+
+**长跑辅助**（连续作业下的进度与留痕）：
+- 进度/断点落 `progress.md`（防上下文压缩丢失）；每个候选线一行看板（§6）
+- 每出一条线的小结写 `Desktop\cnvd\进度台账.md`（候选线/结果/断点），跨天续跑不迷路
+- 长跑期间保持 §5 红线执行强度不变；会话被压缩后先读 progress.md 续跑
+
+## 2. 端点字典库（核心资产 · D:\Hacker\Work\cnvd\rules\，8 文件 28 条）
 
 > 端点来自实战验证，跨厂商迁移复用。新洞入库规则：实战确认后追加，标注来源+判据。
 
@@ -70,7 +96,7 @@ metadata:
 | rules_access_menjin.json | 门禁（门禁专家） | 固件指纹 / 登录页预填默认账密 | 08-24 门禁线 |
 | rules_access_drid.json | 门禁（Dr.ID） | IIS 栈指纹 / o_*.aspx 未授权候选 | 08-24 门禁线 |
 | rules_access_secom.json | 门禁（中興保全 SECOM） | Tomcat 栈指纹 / Tomcat 管理器暴露 | 08-24 门禁线 |
-| rules_ews_printer.json | EWS 打印机 | VNC 面板/账户管理/备份密码/固件升级/配置导出 .ucf | Lexmark 实战 5 端点（2026-07），可迁移至 EWS 架构打印机厂 |
+| rules_ews_printer.json | EWS 打印机 | VNC 面板/账户管理/备份密码/固件升级/配置导出 .ucf | Lexmark 实战 5 端点（2026-07），可迁移至 EWS 架构打印机厂（非大厂） |
 | rules_superpw_only.json | 超级密码单点 | 兑换码未授权泄露（拆出单规则复跑用） | 08-24 新前端线拆出 |
 | rules_generic.json | 通用模板 | 配置导出/backup/路径穿越/API 敏感字段/RTSP | 新线起步模板 |
 
@@ -88,10 +114,11 @@ NAS：群晖 Synology / 威联通 QNAP
 
 ## 4. 脚本与通道
 
-- 脚本：`<包根>/tools/scripts/`（cnvd_recon.py / cnvd_check.py v2）；字典：`<包根>/tools/rules/`；key：`<包根>/api_keys.json`（recon 自动按 包根→当前目录→环境变量 CNVD_KEYS_FILE 顺序查找）
-- FOFA 通道（全部在 api_keys.json 的 channels 数组配置，支持任意数量）：按顺序自动尝试，失败自动切下一个；格式兼容 FOFA 官方 `/api/v1/search/all?key&qbase64` 或常见中转 `?key&query` 两种，配 base_url/search_path/key_param/query_param 即可
-- 工作目录：`<工作根>/cnvd/<产品线>/<日期>/`，状态文件 progress.md + actions.jsonl（轻量两件套，agent 派发留痕）
-- 日志：按本机习惯的日志目录落 `cnvd-YYYYMMDD.log`
+- 脚本：`D:\Hacker\Work\cnvd\scripts\`（cnvd_recon.py / cnvd_check.py v2）
+- FOFA 通道（key 自动读 api_keys.json）：主力 = fafaapi.info 月卡（快，vip2 不限量）；兜底 = fofa.icu 中转站（ICU，慢 ~30s，经常维护）；降级用 `--channel relay`（week=主通道，relay=fofa.icu 兜底，auto=默认自动）
+- 便携包：`C:\Users\Administrator\Desktop\cnvd-skills\`（2026-09-13 打包 + 已上架 GitHub `sywinksvg/cnvd-skill`；可整体移植其他电脑；改脚本/字典时三处（本机/便携包/GitHub）记得同步）
+- 工作目录：`D:\Hacker\Work\cnvd\<产品线>\<日期>\`，状态文件 progress.md + actions.jsonl（轻量两件套，agent 派发留痕）
+- 日志：`D:\Hacker\Work\Logs\02-项目\cnvd-YYYYMMDD.log`
 
 ## 5. 合规红线（不变）
 
@@ -116,4 +143,24 @@ NAS：群晖 Synology / 威联通 QNAP
 |--------|------|------|------|------|------|------|----------|
 ```
 
-**收尾**：① 会话收尾巡检主目录 ② 日志归档 ③ 出洞/经验写记忆（漏洞挖掘域）+ 更新 MEMORY.md ④ 每轮定级交用户拍板。
+## 7. 停机规则（v2.1 · 2026-09-13 定）
+
+```
+继续循环（任何一条成立就换线继续，不算停）：
+  单线命中 <10        → 换下一条冷门线
+  查重全 duplicate     → 换点或换线
+  候选池挑剩          → 换 rule / 换端点 / 换指纹细分，回头再筛
+  通道限流/额度尽     → 记断点，恢复后从断点续
+  多条线连败          → 查重前移加严（条目 >1 即跳），继续找
+  报告落盘            → 归档后继续下一条线
+
+合法停机（只有这些）：
+  ✅ 已出货（报告落盘）且用户喊停
+  ✅ 用户喊停（"停 / 收工 / 退出cnvd / 恢复"）
+  ✅ 撞 §5 红线 → 停下问用户裁决
+
+诚实条款：连续多轮无产出时如实报告"已穷尽 N 条线 + 剩余方向"，
+  禁止把 review/mock 项包装成 confirmed 谎报出货；本原则不改变 §5 红线执行强度。
+```
+
+**收尾**：① 会话收尾巡检主目录 ② 日志归档 ③ 出洞/经验写记忆（漏洞挖掘域）+ 更新 MEMORY.md ④ 每轮定级交用户拍板 ⑤ 进度/断点写入 progress.md（长跑必须，防上下文压缩丢失）。
