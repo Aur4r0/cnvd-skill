@@ -1,4 +1,4 @@
-# CNVD 挖洞 Skill 便携包（v2.0）
+# CNVD 挖洞 Skill 便携包（2.3）
 
 > 用途：把「CNVD 通用型未授权漏洞广扫」这套 skill 完整搬到另一台电脑使用。
 > 打包日期：2026-09-13 ｜ 适用：Windows（脚本本身跨平台，Linux/macOS 亦可跑）

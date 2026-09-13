@@ -23,9 +23,9 @@ A workflow toolkit for discovering **generic unauthenticated vulnerabilities** a
 
 The core idea: **horizontal coverage at the endpoint level, not firmware-level deep dives.** Pick a niche product line, batch-verify similar devices with prebuilt dictionaries — 10+ hits give you enough instances for one generic vulnerability report.
 
-**Run semantics (v2.1)**: **no stopping without output** — the only legal stop condition is having landed at least one submission-ready finding (10+ hits + no duplicate + re-verified + report on disk). Switching product lines is not stopping; keep cycling until a finding lands or the user says stop. Compliance rules stay fully enforced during continuous operation.
+**Run semantics (2.3)**: **no stopping without output** — the only legal stop condition is having landed at least one submission-ready finding (10+ hits + no duplicate + re-verified + report on disk). Switching product lines is not stopping; keep cycling until a finding lands or the user says stop. Compliance rules stay fully enforced during continuous operation.
 
-**Vendor qualification threshold (v2.2)**: A CNVD certificate requires ① a generic vulnerability, ② **vendor's paid-in registered capital > 50M CNY**, ③ domestic (China) vendors preferred. The sweet spot is **mid-size vendors above the capital bar but with low public exposure** — major vendors are duplicate-heavy, small vendors don't qualify for certification. Vendor business registration must be verified during preparation (SKILL.md §1.1a), and reports must include a "Vendor Info" section.
+**Vendor qualification threshold (2.3)**: A CNVD certificate requires ① a generic vulnerability, ② **vendor's paid-in registered capital > 50M CNY**, ③ domestic (China) vendors preferred. The sweet spot is **mid-size vendors above the capital bar but with low public exposure** — major vendors are duplicate-heavy, small vendors don't qualify for certification. Vendor business registration must be verified during preparation (SKILL.md §1.1a), and reports must include a "Vendor Info" section.
 
 ## Workflow
 
