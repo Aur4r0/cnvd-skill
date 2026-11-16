@@ -6,10 +6,10 @@ compatibility: Requires filesystem-based agent with bash, Python 3.10+, and inte
 allowed-tools: Bash Read Write Edit Grep Glob Task WebFetch WebSearch
 metadata:
   user-invocable: "true"
-  version: "2.4"
+  version: "2.5"
 ---
 
-# cnvd 未授权广扫（2.4 · 2026-11-16）
+# cnvd 未授权广扫（2.5 · 2026-11-16）
 
 > 定位：**广扫出量** —— 规则预置（AutoCVE 的快）+ 端点迁移（Lexmark 的量）+ 冷门筛选（大厂全重复的教训）。
 > 触发：说「cnvd / 挖cnvd」；退出：说「恢复 / 退出cnvd」。

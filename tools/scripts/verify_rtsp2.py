@@ -47,14 +47,13 @@ def sock_send(ip, port, payload, timeout=6):
             pass
 
 def has_sdp(resp):
+    """与 cnvd_check.py 的 rtsp_probe 保持同一判据: 必须 v=0 + m=video/audio。
+    不接受 m=video+a=control 的宽松分支 —— 那种响应可能是错误页/非 SDP 内容,
+    宽松判据会让抽验 confirm 主扫描不认的命中, 两套判据必须一致。"""
     if not resp:
         return False
     t = resp.decode("utf-8", errors="ignore")
-    if "v=0" in t and ("m=video" in t or "m=audio" in t):
-        return True
-    if "m=video" in t and "a=control" in t:
-        return True
-    return False
+    return "v=0" in t and ("m=video" in t or "m=audio" in t)
 
 def check_one(ip, port, url_base):
     """Returns (best_status, sdp_snippet, summary)."""

@@ -1,5 +1,26 @@
 # 更新日志
 
+## [2.5] - 2026-11-16
+
+### 修复
+
+- **扫描异常不再静默吞掉**：`ex.map()` 返回值未被迭代，`work()` 内异常完全丢失——目标不进 findings、不进台账、进度照走，整轮看似全部完成实则有目标被跳过。现拆分 `work`/`scan_target`，异常在 `work` 内收敛；失败目标台账记 `ERROR` 且**不算已完成**，`--resume` 会自动重试；结尾打印失败汇总
+- **`exclude_any` 数字状态码误杀真命中**：原为纯子串匹配，响应体含 `SN4012233` 这类数字串的真命中会被 `401` 排除词丢弃（21 条规则中 15 条受影响）。现纯 3 位数字只在状态层面生效，不参与 body 匹配；`login`/`unauthorized` 等字符串排除不变
+- **统一 RTSP 判据**：`verify_rtsp2.py` 的 `has_sdp()` 原有 `m=video`+`a=control` 宽松分支，会 confirm 主扫描不认的命中。现与 `cnvd_check.py` 一致，严格要求 `v=0` + `m=video/audio`
+- **RTSP 响应按 Content-Length 收满**：原读到首个 `CRLFCRLF` 且 >200 字节即停，跨段 SDP 会漏读 `v=0`/`m=video`，造成假阴性
+- **targets.csv 脏数据**：空 IP / 非法端口 / 越界端口现在被拦截并报告行号，不再拿 `:80` 这类目标发请求；`r["ip"]` 为 `None` 时的 `AttributeError` 亦已消除。形如 IPv4 的越界地址（`192.168.1.256`）拒绝而非降级为主机名
+- **`utcfromtimestamp` 弃用**：`verify_newfe_A.py` 改用 `datetime.fromtimestamp(t, timezone.utc)`，Python 3.12+ 不再告警
+
+### 文档
+
+- 新增 [docs/修复说明-2.5.md](docs/修复说明-2.5.md)：五条修复的现象 / 根因 / 改法 / 验证数据
+
+### 未改动
+
+- 端点字典规则内容与判据语义
+- SKILL.md 方法论、合规红线与厂商资质门槛
+- `cnvd_recon.py` 的通道逻辑
+
 ## [2.4] - 2026-11-16
 
 ### 修复
@@ -49,4 +70,4 @@ CNVD 通用型未授权漏洞广扫 skill 便携包。
 
 ---
 
-*本项目遵循语义化版本。当前版本：2.4*
+*本项目遵循语义化版本。当前版本：2.5*

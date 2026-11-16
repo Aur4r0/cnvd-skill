@@ -9,7 +9,7 @@
   python cnvd_check.py --targets 资产.csv --rules rules.json [--geo]
                        [--interval 1.0] [--workers 10] [--timeout 8] [--out findings.csv]
 """
-import argparse, csv, ftplib, json, os, socket, ssl, sys, threading, time
+import argparse, csv, ftplib, ipaddress, json, os, re, socket, ssl, sys, threading, time
 import urllib.request, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
@@ -34,16 +34,42 @@ CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
 
 
+def valid_host(h):
+    """ip 列必须是 IPv4/IPv6 字面量或合法主机名; 空值/含空格的脏数据一律拒掉,
+    否则会拿 ":80" 这种目标去发请求。"""
+    if not h or any(c.isspace() for c in h):
+        return False
+    try:
+        ipaddress.ip_address(h)
+        return True
+    except ValueError:
+        pass
+    # 形如 IPv4 的点分数字串解析失败 = 越界地址(如 192.168.1.256), 不能当主机名放过
+    if re.fullmatch(r"[\d.]+", h):
+        return False
+    return bool(HOSTNAME_RE.match(h))
+
+
 def load_targets(path):
+    """返回 (targets, skipped)。skipped 记被丢弃的行数及原因, 供上层提示。"""
     with open(path, encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
-    targets = []
-    for r in rows:
+    targets, skipped = [], []
+    for ln, r in enumerate(rows, start=2):   # 第 1 行是表头
+        ip = (r.get("ip") or "").strip()
         try:
-            targets.append({"ip": r["ip"].strip(), "port": int(r["port"])})
+            port = int((r.get("port") or "").strip())
         except (KeyError, ValueError):
+            skipped.append(f"第{ln}行: 端口非法 ({r.get('port')!r})")
             continue
-    return targets
+        if not valid_host(ip):
+            skipped.append(f"第{ln}行: IP 非法 ({ip!r})")
+            continue
+        if not (0 < port < 65536):
+            skipped.append(f"第{ln}行: 端口越界 ({port})")
+            continue
+        targets.append({"ip": ip, "port": port})
+    return targets, skipped
 
 
 def load_rules(path):
@@ -107,11 +133,20 @@ def extract_snippet(body, hits):
     return " ".join(body[max(0, i - 120):i + 120].split())[:300]
 
 
+EXCLUDE_CODE_RE = re.compile(r"^\d{3}$")
+HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
+                         r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
 def evaluate_http(status, body, rule):
     if status >= 400:
         return None
     b = body.lower()
     for x in rule.get("exclude_any", []):
+        # 纯 3 位数字视为 HTTP 状态码, 只在状态行层面生效, 不参与 body 子串匹配。
+        # 否则响应体里恰好含 "401" 的真命中(如序列号 SN4012233)会被误杀。
+        if EXCLUDE_CODE_RE.match(x.strip()):
+            continue
         if x.lower() in b:
             return None
     if len(body) < rule.get("min_len", 0):
@@ -155,6 +190,8 @@ def http_probe(ip, port, rule, timeout, pacer):
 
 
 def recv_all(s):
+    """收一条 RTSP 响应。响应头结束(第一个 CRLFCRLF)后再按 Content-Length 把 body 收满,
+    否则 SDP 正文可能被截断, 导致 v=0 / m=video 判据漏判(假阴性)。"""
     data = b""
     try:
         while True:
@@ -162,7 +199,18 @@ def recv_all(s):
             if not chunk:
                 break
             data += chunk
-            if b"\r\n\r\n" in data and len(data) > 200:
+            if b"\r\n\r\n" not in data:
+                continue
+            head, _, body = data.partition(b"\r\n\r\n")
+            clen = 0
+            for ln in head.decode("utf-8", "replace").splitlines():
+                if ln.lower().startswith("content-length:"):
+                    try:
+                        clen = int(ln.split(":", 1)[1].strip())
+                    except ValueError:
+                        clen = 0
+                    break
+            if len(body) >= clen:
                 break
     except OSError:
         pass
@@ -262,7 +310,16 @@ def main():
     p.add_argument("--ledger", help="进度台账路径(默认 <out 去扩展名>.scanned.csv)")
     args = p.parse_args()
 
-    targets = load_targets(args.targets)
+    targets, skipped = load_targets(args.targets)
+    if skipped:
+        print(f"== 输入提示: {len(skipped)} 行被跳过（空 IP / 端口非法 / 端口越界）==")
+        for msg in skipped[:5]:
+            print(f"    - {msg}")
+        if len(skipped) > 5:
+            print(f"    ... 另有 {len(skipped) - 5} 行")
+    if not targets:
+        print("== 错误: 没有可扫描的目标（检查 targets.csv 格式：表头 ip,port）==")
+        sys.exit(1)
     rules = load_rules(args.rules)
 
     cols = ["ip", "port", "probe_port", "rule_id", "rule_name", "severity", "type", "url",
@@ -286,8 +343,9 @@ def main():
                     row["hits"] = ",".join(row["hits"])
                 w.writerow(row)
 
-    def write_ledger(ip, port, items):
-        """在 findings 落盘之后追加台账(含零命中), 供 --resume 精确跳过"""
+    def write_ledger(ip, port, items, error=""):
+        """在 findings 落盘之后追加台账(含零命中)。
+        error 非空 = 该目标扫描抛异常, 记为失败(续跑会重试), 不当成已完成。"""
         new = not os.path.isfile(ledger_path)
         with open(ledger_path, "a", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=LEDGER_COLS, extrasaction="ignore")
@@ -295,15 +353,19 @@ def main():
                 w.writeheader()
             w.writerow({"ip": ip, "port": port, "hits": len(items),
                         "scanned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "note": "0" if not items else ""})
+                        "note": error or ("0" if not items else "")})
     done_keys = set()
     old_findings = []
     if args.resume:
         if os.path.isfile(ledger_path):
             with open(ledger_path, encoding="utf-8-sig") as f:
                 for row in csv.DictReader(f):
-                    if row.get("ip"):
-                        done_keys.add((row["ip"].strip(), str(row.get("port", "")).strip()))
+                    if not row.get("ip"):
+                        continue
+                    # note 以 ERROR 开头 = 上次扫描异常, 不算完成, 续跑重试
+                    if str(row.get("note", "")).startswith("ERROR"):
+                        continue
+                    done_keys.add((row["ip"].strip(), str(row.get("port", "")).strip()))
         else:
             # 兼容旧 run: 没台账时退回按 findings 推导(零命中目标会被重扫)
             print(f"== 提示: 未找到台账 {ledger_path}，退回按 findings 推导已完成目标 ==")
@@ -335,8 +397,36 @@ def main():
             return [rule_port]
         return [port, rule_port]
 
+    failures = []
+
     def work(t):
+        """单个目标完整扫描。任何异常都在此收敛: 记台账(带错误)后继续下一个目标,
+        不让一个坏目标炸掉整轮。失败目标不写「已完成」, 续跑会重试。"""
         ip, port = t["ip"], t["port"]
+        res = []
+        try:
+            res = scan_target(ip, port)
+        except Exception as e:
+            err = f"ERROR {type(e).__name__}: {e}"[:180]
+            with fl:
+                failures.append(f"{ip}:{port} {err}")
+                done[0] += 1
+            with write_lock:
+                write_ledger(ip, port, [], err)
+            with fl:
+                print(f"    失败 {done[0]}/{len(targets)} {ip}:{port} {err}", flush=True)
+            return []
+        with fl:
+            findings.extend(res)
+            done[0] += 1
+        with write_lock:
+            append_findings(res)          # 先落命中
+            write_ledger(ip, port, res)   # 再记台账
+        with fl:
+            print(f"    完成 {done[0]}/{len(targets)} {ip}:{port} 命中 {len(res)}", flush=True)
+        return res
+
+    def scan_target(ip, port):
         res = []
         for rule in rules:
             rtype = rule.get("type", "http")
@@ -370,18 +460,10 @@ def main():
                 it["org"] = d.get("org", "")
                 it["as"] = d.get("as", "")
                 it["cloud_suspect"] = "yes" if is_cloud(d) else "no"
-        with fl:
-            findings.extend(res)
-            done[0] += 1
-        with write_lock:
-            append_findings(res)          # 先落命中
-            write_ledger(ip, port, res)   # 再记台账
-        with fl:
-            print(f"    完成 {done[0]}/{len(targets)} {ip}:{port} 命中 {len(res)}", flush=True)
         return res
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        ex.map(work, targets)
+        list(ex.map(work, targets))   # 必须消费迭代器, 否则 work 内异常被静默吞掉
 
     # 本轮命中已增量落盘; 这里统一重排成 severity 优先的最终文件(旧 findings 合并回去)
     all_findings = old_findings + findings
@@ -398,6 +480,12 @@ def main():
             w.writerow(row)
     print(f"== findings 已导出 {args.out} ({len(all_findings)} 条, 含旧 {len(old_findings)}) ==")
     print("    定级分布:", dict(Counter(f.get("severity", "review") for f in all_findings)))
+    if failures:
+        print(f"== 注意: {len(failures)} 个目标扫描异常, 已记台账 note 列, --resume 会重试 ==")
+        for f in failures[:10]:
+            print(f"    ✗ {f}")
+        if len(failures) > 10:
+            print(f"    ... 另有 {len(failures) - 10} 个")
 
 
 if __name__ == "__main__":

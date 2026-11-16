@@ -62,7 +62,8 @@ def check_superpw(body):
             t = int(ts)
             if t > 4e12:
                 t //= 1000
-            ts_str = datetime.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
+            ts_str = datetime.datetime.fromtimestamp(
+                t, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             pass
     snippet = f"L1={l1} | L2={dev_id}_{ts} (UTC {ts_str})"
