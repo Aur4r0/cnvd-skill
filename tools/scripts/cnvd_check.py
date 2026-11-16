@@ -13,6 +13,8 @@ import argparse, csv, ftplib, json, os, socket, ssl, sys, threading, time
 import urllib.request, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
+from contextlib import contextmanager
+from datetime import datetime
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -24,6 +26,9 @@ CLOUD_WORDS = ["alibaba", "aliyun", "tencent", "huawei", "amazon", "aws", "micro
                "qingcloud", "baidu", "lightnode"]
 RTSP_STREAMS = ["/", "/live", "/stream1", "/ch1/main",
                 "/cam/realmonitor?channel=1&subtype=0", "/1"]
+# 目标端口若属于这些常见 Web 端口，说明该行为 HTTP 资产，不再用同端口探 RTSP/FTP
+COMMON_WEB_PORTS = {80, 81, 82, 88, 443, 8000, 8080, 8443, 8888}
+LEDGER_COLS = ["ip", "port", "hits", "scanned_at", "note"]
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
@@ -47,7 +52,7 @@ def load_rules(path):
 
 
 class Pacer:
-    """跨 IP 并发, 单 IP 串行且间隔 >= interval 秒"""
+    """跨 IP 并发, 单 IP 严格串行且两次请求间隔 >= interval 秒(从上次结束算起)"""
     def __init__(self, interval):
         self.interval = interval
         self._g = threading.Lock()
@@ -62,12 +67,21 @@ class Pacer:
             wait = self.interval - (time.time() - self._last.get(ip, 0))
         if wait > 0:
             time.sleep(wait)
-        with self._g:
-            self._last[ip] = time.time()
         return lock
 
     def release(self, ip, lock):
+        with self._g:
+            self._last[ip] = time.time()   # 从请求结束时刻起算间隔
         lock.release()
+
+    @contextmanager
+    def slot(self, ip):
+        """给非 HTTP 探针用: with pacer.slot(ip): ...一次完整探测..."""
+        lock = self.acquire(ip)
+        try:
+            yield
+        finally:
+            self.release(ip, lock)
 
 
 def http_get(url, timeout, method=None, body=None, ctype=None):
@@ -129,7 +143,7 @@ def http_probe(ip, port, rule, timeout, pacer):
         v = evaluate_http(*r, rule)
         if not v:
             continue
-        time.sleep(pacer.interval)          # 复现请求间隔
+        # 双差分: 等间隔后无 cookie 复现一次, 不可复现则丢弃
         lock = pacer.acquire(ip)
         try:
             r2 = http_get(url, timeout, method, body, ctype)
@@ -155,9 +169,10 @@ def recv_all(s):
     return data.decode("utf-8", "replace")
 
 
-def rtsp_probe(ip, port, timeout):
+def rtsp_probe(ip, port, timeout, interval=1.0):
     """v2 严格判据: DESCRIBE 200 且响应含 SDP(v=0 + m=video/audio) 才命中;
-    OPTIONS-only / DESCRIBE 无 SDP 一律丢弃(防误报噪音, 08-22 实战教训)"""
+    OPTIONS-only / DESCRIBE 无 SDP 一律丢弃(防误报噪音, 08-22 实战教训)。
+    同一连接内多个 DESCRIBE 之间也按 interval 节流(合规: 不对单 IP 连发)。"""
     try:
         s = socket.create_connection((ip, port), timeout=timeout)
         s.settimeout(timeout)
@@ -167,6 +182,7 @@ def rtsp_probe(ip, port, timeout):
             return []
         described = None
         for path in RTSP_STREAMS:
+            time.sleep(interval)
             s.sendall(f"DESCRIBE rtsp://{ip}:{port}{path} RTSP/1.0\r\nCSeq: 2\r\n"
                       f"Accept: application/sdp\r\n\r\n".encode())
             resp = recv_all(s)
@@ -178,7 +194,8 @@ def rtsp_probe(ip, port, timeout):
         if described is not None:
             return [{"type": "rtsp", "url": f"rtsp://{ip}:{port}{described}",
                      "hits": ["rtsp200"], "mock": False, "needs_review": False,
-                     "snippet": "OPTIONS+DESCRIBE 200 且 SDP 含视频/音频流 → 未授权可拉流"}]
+                     "snippet": "OPTIONS+DESCRIBE 200 且 SDP 含视频/音频流 → 未授权可拉流",
+                     "probe_port": port}]
         return []   # OPTIONS-only 或无 SDP = 丢弃, 不产出噪音
     except OSError:
         return []
@@ -203,7 +220,8 @@ def ftp_probe(ip, port, timeout):
             f.close()
         return [{"type": "ftp", "url": f"ftp://{ip}:{port}/",
                  "hits": ["anonymous230"], "mock": False, "needs_review": False,
-                 "snippet": "anonymous 230, 目录: " + ", ".join(names)}]
+                 "snippet": "anonymous 230, 目录: " + ", ".join(names),
+                 "probe_port": port}]
     except Exception:
         return []
 
@@ -239,21 +257,67 @@ def main():
     p.add_argument("--timeout", type=float, default=8)
     p.add_argument("--geo", action="store_true", help="ip-api 归属查询+云厂商标记(慢)")
     p.add_argument("--out", default="findings.csv")
-    p.add_argument("--resume", action="store_true", help="断点续跑：读已有 --out 文件，跳过已完成的 ip:port")
+    p.add_argument("--resume", action="store_true",
+                   help="断点续跑：据 <out>.scanned.csv 台账跳过已扫完的 ip:port(含零命中)")
+    p.add_argument("--ledger", help="进度台账路径(默认 <out 去扩展名>.scanned.csv)")
     args = p.parse_args()
 
     targets = load_targets(args.targets)
     rules = load_rules(args.rules)
 
+    cols = ["ip", "port", "probe_port", "rule_id", "rule_name", "severity", "type", "url",
+            "hits", "mock", "needs_review", "cloud_suspect", "isp", "org", "as",
+            "snippet", "note"]
+    ledger_path = args.ledger or os.path.splitext(args.out)[0] + ".scanned.csv"
+    write_lock = threading.Lock()
+
+    def append_findings(items):
+        """增量落盘命中, 与台账同锁写入 —— 进程被杀时二者保持一致, 续跑不丢命中"""
+        if not items:
+            return
+        new = not os.path.isfile(args.out) or os.path.getsize(args.out) == 0
+        with open(args.out, "a", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+            if new:
+                w.writeheader()
+            for r in items:
+                row = {k: r.get(k, "") for k in cols}
+                if isinstance(row.get("hits"), list):
+                    row["hits"] = ",".join(row["hits"])
+                w.writerow(row)
+
+    def write_ledger(ip, port, items):
+        """在 findings 落盘之后追加台账(含零命中), 供 --resume 精确跳过"""
+        new = not os.path.isfile(ledger_path)
+        with open(ledger_path, "a", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=LEDGER_COLS, extrasaction="ignore")
+            if new:
+                w.writeheader()
+            w.writerow({"ip": ip, "port": port, "hits": len(items),
+                        "scanned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "note": "0" if not items else ""})
     done_keys = set()
     old_findings = []
-    if args.resume and os.path.isfile(args.out):
-        with open(args.out, encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                old_findings.append(row)
-                done_keys.add((row.get("ip", ""), row.get("port", "")))
+    if args.resume:
+        if os.path.isfile(ledger_path):
+            with open(ledger_path, encoding="utf-8-sig") as f:
+                for row in csv.DictReader(f):
+                    if row.get("ip"):
+                        done_keys.add((row["ip"].strip(), str(row.get("port", "")).strip()))
+        else:
+            # 兼容旧 run: 没台账时退回按 findings 推导(零命中目标会被重扫)
+            print(f"== 提示: 未找到台账 {ledger_path}，退回按 findings 推导已完成目标 ==")
+            if os.path.isfile(args.out):
+                with open(args.out, encoding="utf-8-sig") as f:
+                    for row in csv.DictReader(f):
+                        done_keys.add((row.get("ip", ""), str(row.get("port", ""))))
+        if os.path.isfile(args.out):
+            with open(args.out, encoding="utf-8-sig") as f:
+                old_findings = list(csv.DictReader(f))
+        before = len(targets)
         targets = [t for t in targets if (t["ip"], str(t["port"])) not in done_keys]
-        print(f"== 断点续跑: 已有 {len(old_findings)} 条 findings, 剩余 {len(targets)} 个待扫 ==")
+        print(f"== 断点续跑: 已完成 {before - len(targets)} 个目标, "
+              f"剩余 {len(targets)} 个待扫, 已有 {len(old_findings)} 条 findings ==")
 
     print(f"== 目标 {len(targets)} 个 | 规则 {len(rules)} 条 | "
           f"间隔 {args.interval}s | 并发 {args.workers} ==")
@@ -263,6 +327,14 @@ def main():
     geo_cache, geo_lock = {}, threading.Lock()
     done = [0]
 
+    def probe_ports(port, rule_port):
+        """优先探目标行自己的端口; 目标行是常见 Web 端口时不再拿它探 RTSP/FTP"""
+        if port == rule_port:
+            return [rule_port]
+        if port in COMMON_WEB_PORTS:
+            return [rule_port]
+        return [port, rule_port]
+
     def work(t):
         ip, port = t["ip"], t["port"]
         res = []
@@ -271,9 +343,15 @@ def main():
             if rtype == "http":
                 items = http_probe(ip, port, rule, args.timeout, pacer)
             elif rtype == "rtsp":
-                items = rtsp_probe(ip, rule.get("port", 554), args.timeout)
+                items = []
+                for p in probe_ports(port, rule.get("port", 554)):
+                    with pacer.slot(ip):
+                        items.extend(rtsp_probe(ip, p, args.timeout, args.interval))
             elif rtype == "ftp":
-                items = ftp_probe(ip, rule.get("port", 21), args.timeout)
+                items = []
+                for p in probe_ports(port, rule.get("port", 21)):
+                    with pacer.slot(ip):
+                        items.extend(ftp_probe(ip, p, args.timeout))
             else:
                 items = []
             for it in items:
@@ -281,6 +359,9 @@ def main():
                            "rule_name": rule.get("name", "?"),
                            "severity": rule.get("severity", "review"),
                            "note": rule.get("note", "")})
+                # probe_port = 实际探测端口(可能不同于 targets 行的 port, 如行是 8080 而探 554)
+                # url 由探针直接按实际端口生成, 复现时以 url / probe_port 为准
+                it.setdefault("probe_port", port)
             res.extend(items)
         if args.geo:
             d = geo_lookup(ip, geo_cache, geo_lock)
@@ -292,24 +373,27 @@ def main():
         with fl:
             findings.extend(res)
             done[0] += 1
+        with write_lock:
+            append_findings(res)          # 先落命中
+            write_ledger(ip, port, res)   # 再记台账
+        with fl:
             print(f"    完成 {done[0]}/{len(targets)} {ip}:{port} 命中 {len(res)}", flush=True)
         return res
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         ex.map(work, targets)
 
+    # 本轮命中已增量落盘; 这里统一重排成 severity 优先的最终文件(旧 findings 合并回去)
     all_findings = old_findings + findings
     all_findings.sort(key=lambda f: ({"high": 0, "mid": 1, "low": 2,
-                                  "review": 3}.get(f.get("severity", "review"), 9), f.get("ip", "")))
-    cols = ["ip", "port", "rule_id", "rule_name", "severity", "type", "url",
-            "hits", "mock", "needs_review", "cloud_suspect", "isp", "org", "as",
-            "snippet", "note"]
+                                  "review": 3}.get(f.get("severity", "review"), 9),
+                                     f.get("ip", ""), f.get("rule_id", "")))
     with open(args.out, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
         for r in all_findings:
             row = {k: r.get(k, "") for k in cols}
-            if isinstance(row.get("hits", ""), list):
+            if isinstance(row.get("hits"), list):
                 row["hits"] = ",".join(row["hits"])
             w.writerow(row)
     print(f"== findings 已导出 {args.out} ({len(all_findings)} 条, 含旧 {len(old_findings)}) ==")

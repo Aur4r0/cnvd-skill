@@ -13,7 +13,7 @@
 cnvd-skill-便携包/
 ├── README-移植说明.md          ← 本文件
 ├── 校验.bat                    ← 双击运行：环境自检 + 冒烟测试
-├── api_keys.json               ← FOFA 通道 key 模板（占位符，用前必须填自己的 key）
+├── api_keys.example.json       ← FOFA 通道配置模板（复制为 api_keys.json 后填自己的 key）
 ├── skills/
 │   └── cnvd/SKILL.md           ← skill 本体（流程/原则/字典说明）
 ├── tools/
@@ -43,10 +43,10 @@ cnvd-skill-便携包/
 
 **第 1.5 步：填自己的 FOFA key（必做）**
 
-包内 `api_keys.json` 是**占位模板**，所有通道的 `key` 字段都是 `REPLACE_ME`。开工前：
+包内 `api_keys.example.json` 是**占位模板**，所有通道的 `key` 字段都是 `REPLACE_ME`；`api_keys.json` 含真实密钥不入库。开工前先复制一份：
 
 1. 准备 FOFA 查询通道（官方 fofa.info 会员，或任意提供官方/中转格式 API 的代理站）
-2. 编辑 `api_keys.json`，在 `channels` 数组里配置你的通道：
+2. `copy api_keys.example.json api_keys.json`，再编辑 `api_keys.json`，在 `channels` 数组里配置你的通道：
    - `base_url`：中转站地址（如 `https://your-proxy.com`）
    - `search_path`：查询接口路径（官方格式一般是 `/api/v1/search/all`，中转格式看你的站文档）
    - `key_param`：key 参数名（一般是 `key`，个别站是 `api_key`）
@@ -110,7 +110,7 @@ python cnvd_check.py --targets targets.csv --rules ..\rules\rules_boa.json --geo
 
 | 项 | 说明 |
 |----|------|
-| `api_keys.json` | **占位模板**，用前必须填自己的 FOFA key（见第 1.5 步）；在 `channels` 数组里配置，支持任意数量通道，自动按顺序尝试 |
+| `api_keys.example.json` | **占位模板**，复制为 `api_keys.json` 后填自己的 FOFA key（见第 1.5 步）；在 `channels` 数组里配置，支持任意数量通道，自动按顺序尝试 |
 | FOFA 通道地址 | 全部在 `api_keys.json` 的 `channels` 里配，改 json 不动代码 |
 | 报告输出 | **统一落桌面**：`Desktop\cnvd\<厂商>\<日期>\`（拿到报告即在这里找）；工作目录用 `--out` 自定 |
 | 校验.bat 的 python 命令 | 若本机用 `py` 启动器，把 bat 里的 `python` 批量替换为 `py` |
@@ -128,7 +128,7 @@ python cnvd_check.py --targets targets.csv --rules ..\rules\rules_boa.json --geo
 不应该发生——所有脚本纯标准库。若出现，检查是否 Python 环境太旧（<3.8）。
 
 **Q：recon 报「所有通道均失败」或 key 报错？**
-若还没填自己的 key（api_keys.json 里还是 REPLACE_ME），recon 必然失败——这是预期行为，先完成第 1.5 步。
+若还没填自己的 key（api_keys.json 里还是 REPLACE_ME，或压根没复制模板），recon 会直接打印提示并退出（exit 2）——这是预期行为，先完成第 1.5 步。
 已填 key 仍失败：检查 `base_url` / `search_path` / `query_param` 三项是否和你的中转站文档一致；不同中转站格式不一样，配错了会 404 或返回空。所有通道都挂 = 通道侧问题，隔天再试。
 
 **Q：输出文件在哪？**

@@ -17,19 +17,24 @@ except Exception:
     pass
 
 def _find_keys_file():
-    """按 便携包根目录 → 当前目录 → 环境变量 CNVD_KEYS_FILE 顺序找 api_keys.json"""
+    """按 便携包根目录 → 当前目录 → 环境变量 CNVD_KEYS_FILE 顺序找 api_keys.json
+    找不到真实配置时回退到 api_keys.example.json（占位模板），由调用方检测并提示"""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__)))), "api_keys.json"),   # 便携包根目录
+        os.path.join(root, "api_keys.json"),                     # 便携包根目录
         os.path.join(os.getcwd(), "api_keys.json"),              # 当前目录
         os.environ.get("CNVD_KEYS_FILE", ""),                    # 环境变量指定
     ]
     for c in candidates:
         if c and os.path.isfile(c):
-            return c
-    return candidates[0]
+            return c, False
+    for example in (os.path.join(root, "api_keys.example.json"),
+                    os.path.join(os.getcwd(), "api_keys.example.json")):
+        if os.path.isfile(example):
+            return example, True
+    return os.path.join(root, "api_keys.json"), False
 
-KEYS_FILE = _find_keys_file()
+KEYS_FILE, KEYS_IS_EXAMPLE = _find_keys_file()
 DEFAULT_FIELDS = ["ip", "port", "host", "title", "server"]
 
 PRESETS = {
@@ -68,11 +73,26 @@ PRESETS = {
 }
 
 def load_channels():
-    """从 api_keys.json 读取所有 enabled 的通道配置"""
+    """从 api_keys.json 读取所有 enabled 的通道配置；读到示例模板时返回 None"""
+    if not os.path.isfile(KEYS_FILE):
+        return None
     with open(KEYS_FILE, encoding="utf-8") as f:
         cfg = json.load(f)
     channels = cfg.get("channels", [])
     return [c for c in channels if c.get("enabled", True)]
+
+
+def keys_hint(reason):
+    """统一的「配置缺失/占位」提示，避免裸 traceback"""
+    if KEYS_IS_EXAMPLE:
+        head = "== 未找到 api_keys.json，当前读的是占位模板 api_keys.example.json =="
+    else:
+        head = f"== api_keys.json 不可用（{reason}） =="
+    print(head)
+    print(f"   读取路径: {KEYS_FILE}")
+    print("   处理: 复制 api_keys.example.json 为 api_keys.json，填入你的 FOFA 中转站 base_url 和 key")
+    print("   提示: 只有 recon 拉资产需要 key；--help / rules 字典 / cnvd_check.py 扫描都不需要")
+    sys.exit(2)
 
 def http_get_json(url, timeout):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -153,8 +173,11 @@ def main():
         return
 
     channels = load_channels()
+    if channels is None:
+        keys_hint("文件不存在")
     if args.list_channels:
-        print(f"== 已启用通道 ({len(channels)} 个) ==")
+        print(f"== 已启用通道 ({len(channels)} 个) =="
+              + ("  [占位模板，需复制为 api_keys.json 并填 key]" if KEYS_IS_EXAMPLE else ""))
         for ch in channels:
             print(f"  - {ch['name']:12s} {ch['base_url']}  ({ch.get('query_param', 'qbase64')})")
         return
@@ -163,6 +186,8 @@ def main():
         print("== 错误：api_keys.json 里没有 enabled=true 的通道 ==")
         print("   请编辑 api_keys.json，填入你的 FOFA 中转站 key 和地址")
         sys.exit(1)
+    if KEYS_IS_EXAMPLE or any(c.get("key") == "REPLACE_ME" for c in channels):
+        keys_hint("仍是占位模板")
 
     if args.channel:
         channels = [c for c in channels if c["name"] == args.channel]

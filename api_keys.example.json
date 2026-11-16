@@ -1,0 +1,13 @@
+{
+  "channels": [
+    {
+      "name": "primary",
+      "enabled": true,
+      "base_url": "https://你的中转站地址",
+      "search_path": "/api/v1/search/all",
+      "key_param": "key",
+      "query_param": "qbase64",
+      "key": "REPLACE_ME"
+    }
+  ]
+}

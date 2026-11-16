@@ -38,6 +38,13 @@ echo [3c] verify_rtsp2 ......... OK
 if errorlevel 1 ( echo [3d] probe_bodies ......... FAIL & pause & exit /b 1 )
 echo [3d] probe_bodies ......... OK
 
+if not exist "api_keys.json" (
+  echo [4a] api_keys.json ...... TODO  - not found. api_keys.example.json is the template.
+  echo     [4a] api_keys.json .. TODO  未找到，api_keys.example.json 是占位模板
+  echo     Copy api_keys.example.json to api_keys.json and fill base_url + key.
+  echo     ^(复制后填入自己的 FOFA 中转站地址和 key；通道实测将跳过^)
+  goto :done
+)
 %PY% -c "import json;d=json.load(open('api_keys.json',encoding='utf-8'));chs=d.get('channels',[]);enabled=[c for c in chs if c.get('enabled')];assert enabled;print('[4a] channels field ...... OK, found',len(enabled),'enabled channel(s)');import sys;sys.exit(3 if any(c.get('key','')=='REPLACE_ME' for c in enabled) else 0)"
 if errorlevel 3 (
   echo [4b] key values .......... TODO  - still placeholders. Fill your own FOFA key per README step 1.5
