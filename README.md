@@ -228,6 +228,7 @@ python cnvd_check.py --targets targets.csv --rules ..\rules\rules_boa.json --geo
 | [docs/FAQ.md](docs/FAQ.md) | 常见问题与排坑 |
 | [docs/修复说明-2.4.md](docs/修复说明-2.4.md) | 2.4 修复清单：根因分析 + 验证方法 |
 | [docs/修复说明-2.5.md](docs/修复说明-2.5.md) | 2.5 修复清单：结果完整性与判据准确性 |
+| [docs/修复说明-2.6.md](docs/修复说明-2.6.md) | 2.6 修复清单：实跑验证发现的崩溃与误报 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本记录 |
 
 ---

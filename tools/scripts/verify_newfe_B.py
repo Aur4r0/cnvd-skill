@@ -181,12 +181,14 @@ RTSP_PATHS = ["/", "/live", "/stream1", "/ch1/main",
 
 def check_rtsp(ip, port):
     base = f"rtsp://{ip}:{port}"
+    rtsp_gap()          # OPTIONS 是一个独立请求, 同样要受单 IP 间隔约束
     opt = sock_send(ip, port,
                     f"OPTIONS {base} RTSP/1.0\r\nCSeq: 1\r\n"
                     f"User-Agent: LibVLC/3.0.16\r\n\r\n".encode())
     opts_status = opt.split(b"\r\n")[0].decode("utf-8", "ignore") if opt else ""
     if not opt:
         time.sleep(2.0)
+        rtsp_gap()
         opt = sock_send(ip, port,
                         f"OPTIONS {base} RTSP/1.0\r\nCSeq: 1\r\n"
                         f"User-Agent: LibVLC/3.0.16\r\n\r\n".encode(), timeout=8)
@@ -242,10 +244,14 @@ def main():
     n = len(cases)
     print(f"total: {n}")
     for i, c in enumerate(cases):
-        ip = c["ip"].strip()
-        rule = c["rule_id"].strip()
-        port_col = c["port"].strip()
-        url = c["url"].strip()
+        # CSV 空字段读出来是 None, 不是 "" —— 直接 .strip() 会 AttributeError
+        ip = (c.get("ip") or "").strip()
+        rule = (c.get("rule_id") or "").strip()
+        port_col = (c.get("port") or "").strip()
+        url = (c.get("url") or "").strip()
+        if not url or not ip:
+            print(f"[{i+1}/{n}] 跳过: url/ip 为空", flush=True)
+            continue
         case_id = f"{ip}_{port_col}_{rule}"
         print(f"[{i+1}/{n}] {case_id} ...", flush=True)
 

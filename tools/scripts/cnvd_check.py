@@ -54,7 +54,7 @@ def load_targets(path):
     """返回 (targets, skipped)。skipped 记被丢弃的行数及原因, 供上层提示。"""
     with open(path, encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
-    targets, skipped = [], []
+    targets, skipped, seen = [], [], set()
     for ln, r in enumerate(rows, start=2):   # 第 1 行是表头
         ip = (r.get("ip") or "").strip()
         try:
@@ -68,6 +68,10 @@ def load_targets(path):
         if not (0 < port < 65536):
             skipped.append(f"第{ln}行: 端口越界 ({port})")
             continue
+        if (ip, port) in seen:               # 重复行会白扫两次并让 findings 重复
+            skipped.append(f"第{ln}行: 重复目标 ({ip}:{port})")
+            continue
+        seen.add((ip, port))
         targets.append({"ip": ip, "port": port})
     return targets, skipped
 
@@ -138,16 +142,35 @@ HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0
                          r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
+ASCII_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
+
+
+def word_in(needle, haystack):
+    """排除词匹配。对纯 ASCII 单词用词边界, 其它(中文/以符号开头结尾如 <html、
+    function() 用裸子串。
+
+    裸子串会让 ASCII 排除词误杀合法内容: "login" 命中 login_time / last_login /
+    loginCount 这些设备配置常见字段, "401" 命中序列号 SN4012233。
+    词边界下 "login" 不再匹配 login_time(_ 是单词字符), 但仍匹配 "login.html"、
+    "please login" 这类真正的登录页特征。
+
+    中文与符号类排除词必须保持子串匹配: \\b 在中文之间不成立(登入畫面 会漏判),
+    <html 以 < 开头也没有边界, 用词边界会让这些真正的排除特征失效。"""
+    if ASCII_WORD_RE.match(needle):
+        return re.search(r"\b" + re.escape(needle) + r"\b", haystack, re.I) is not None
+    return needle.lower() in haystack
+
+
 def evaluate_http(status, body, rule):
     if status >= 400:
         return None
     b = body.lower()
     for x in rule.get("exclude_any", []):
-        # 纯 3 位数字视为 HTTP 状态码, 只在状态行层面生效, 不参与 body 子串匹配。
+        # 纯 3 位数字视为 HTTP 状态码, 只在状态层面生效, 不参与 body 匹配。
         # 否则响应体里恰好含 "401" 的真命中(如序列号 SN4012233)会被误杀。
         if EXCLUDE_CODE_RE.match(x.strip()):
             continue
-        if x.lower() in b:
+        if word_in(x.lower(), b):
             return None
     if len(body) < rule.get("min_len", 0):
         return None
@@ -155,6 +178,10 @@ def evaluate_http(status, body, rule):
     matches = [x.lower() for x in rule.get("match_any", [])]
     hits = [m for m in matches if m in b]
     if matches and not hits:
+        return None
+    # min_hits: 要求命中多个特征词才判定。泛词规则(如 match_any 含 uid/channel/user
+    # 这类普通页面也有的词)必须设 >1, 否则任何含该词的 200 页面都会误报。
+    if len(hits) < rule.get("min_hits", 1):
         return None
     return {"hits": hits, "mock": mock, "snippet": extract_snippet(body, hits),
             "needs_review": not matches}
@@ -189,12 +216,16 @@ def http_probe(ip, port, rule, timeout, pacer):
     return out
 
 
+RECV_MAX_BYTES = 65536   # 单条 RTSP 响应上限: SDP 远小于此, 防止畸形 Content-Length 撑爆内存
+
+
 def recv_all(s):
     """收一条 RTSP 响应。响应头结束(第一个 CRLFCRLF)后再按 Content-Length 把 body 收满,
-    否则 SDP 正文可能被截断, 导致 v=0 / m=video 判据漏判(假阴性)。"""
+    否则 SDP 正文可能被截断, 导致 v=0 / m=video 判据漏判(假阴性)。
+    总量上限 RECV_MAX_BYTES: 不信任服务端给的 Content-Length。"""
     data = b""
     try:
-        while True:
+        while len(data) < RECV_MAX_BYTES:
             chunk = s.recv(4096)
             if not chunk:
                 break
@@ -317,7 +348,7 @@ def main():
             print(f"    - {msg}")
         if len(skipped) > 5:
             print(f"    ... 另有 {len(skipped) - 5} 行")
-    if not targets:
+    if not targets and not args.resume:
         print("== 错误: 没有可扫描的目标（检查 targets.csv 格式：表头 ip,port）==")
         sys.exit(1)
     rules = load_rules(args.rules)
@@ -398,33 +429,45 @@ def main():
         return [port, rule_port]
 
     failures = []
+    io_errors = []
 
     def work(t):
-        """单个目标完整扫描。任何异常都在此收敛: 记台账(带错误)后继续下一个目标,
-        不让一个坏目标炸掉整轮。失败目标不写「已完成」, 续跑会重试。"""
+        """单个目标完整扫描。扫描异常与落盘异常都在此收敛, 不让一个坏目标/一次写盘失败
+        炸掉整轮。失败目标不写「已完成」, 续跑会重试。"""
         ip, port = t["ip"], t["port"]
-        res = []
         try:
             res = scan_target(ip, port)
         except Exception as e:
             err = f"ERROR {type(e).__name__}: {e}"[:180]
-            with fl:
-                failures.append(f"{ip}:{port} {err}")
-                done[0] += 1
-            with write_lock:
-                write_ledger(ip, port, [], err)
-            with fl:
-                print(f"    失败 {done[0]}/{len(targets)} {ip}:{port} {err}", flush=True)
+            _record_failure(ip, port, err)
             return []
         with fl:
             findings.extend(res)
             done[0] += 1
-        with write_lock:
-            append_findings(res)          # 先落命中
-            write_ledger(ip, port, res)   # 再记台账
+        try:
+            with write_lock:
+                append_findings(res)          # 先落命中
+                write_ledger(ip, port, res)   # 再记台账
+        except OSError as e:
+            # 磁盘满/权限不足: 不能算该目标已完成, 否则续跑会跳过它而命中丢失
+            _record_failure(ip, port, f"ERROR 写盘失败 {type(e).__name__}: {e}"[:180])
+            return []
         with fl:
             print(f"    完成 {done[0]}/{len(targets)} {ip}:{port} 命中 {len(res)}", flush=True)
         return res
+
+    def _record_failure(ip, port, err):
+        with fl:
+            failures.append(f"{ip}:{port} {err}")
+            done[0] += 1
+        try:
+            with write_lock:
+                write_ledger(ip, port, [], err)
+        except OSError as e:
+            with fl:
+                io_errors.append(f"{ip}:{port} 台账写入失败 {e}"[:180])
+        with fl:
+            print(f"    失败 {done[0]}/{len(targets)} {ip}:{port} {err}", flush=True)
 
     def scan_target(ip, port):
         res = []
@@ -465,20 +508,34 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         list(ex.map(work, targets))   # 必须消费迭代器, 否则 work 内异常被静默吞掉
 
-    # 本轮命中已增量落盘; 这里统一重排成 severity 优先的最终文件(旧 findings 合并回去)
-    all_findings = old_findings + findings
+    # 本轮命中已增量落盘; 这里统一重排成 severity 优先的最终文件(旧 findings 合并回去)。
+    # 按 (ip, port, rule_id, url) 去重: 中断后 --resume 重扫同一目标、或输入里有重复行,
+    # 都会让同一命中被追加多次, 不去重会累积。
+    all_findings, seen_keys = [], set()
+    for f in old_findings + findings:
+        key = (str(f.get("ip", "")), str(f.get("port", "")),
+               str(f.get("rule_id", "")), str(f.get("url", "")))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        all_findings.append(f)
     all_findings.sort(key=lambda f: ({"high": 0, "mid": 1, "low": 2,
                                   "review": 3}.get(f.get("severity", "review"), 9),
                                      f.get("ip", ""), f.get("rule_id", "")))
-    with open(args.out, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader()
-        for r in all_findings:
-            row = {k: r.get(k, "") for k in cols}
-            if isinstance(row.get("hits"), list):
-                row["hits"] = ",".join(row["hits"])
-            w.writerow(row)
-    print(f"== findings 已导出 {args.out} ({len(all_findings)} 条, 含旧 {len(old_findings)}) ==")
+    try:
+        with open(args.out, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+            w.writeheader()
+            for r in all_findings:
+                row = {k: r.get(k, "") for k in cols}
+                if isinstance(row.get("hits"), list):
+                    row["hits"] = ",".join(row["hits"])
+                w.writerow(row)
+        print(f"== findings 已导出 {args.out} ({len(all_findings)} 条, 含旧 {len(old_findings)}) ==")
+    except OSError as e:
+        # 增量写入的那份仍在磁盘上, 只是没排序去重; 如实告知, 不假装成功
+        print(f"== 错误: 最终 findings 重写失败 ({e}) ==")
+        print(f"   {args.out} 中的增量结果仍在, 但未排序去重; 排查磁盘/权限后可重跑整理")
     print("    定级分布:", dict(Counter(f.get("severity", "review") for f in all_findings)))
     if failures:
         print(f"== 注意: {len(failures)} 个目标扫描异常, 已记台账 note 列, --resume 会重试 ==")
@@ -486,6 +543,10 @@ def main():
             print(f"    ✗ {f}")
         if len(failures) > 10:
             print(f"    ... 另有 {len(failures) - 10} 个")
+    if io_errors:
+        print(f"== 严重: {len(io_errors)} 个目标的台账写入失败（磁盘/权限），这些目标不会被 --resume 记住 ==")
+        for e in io_errors[:5]:
+            print(f"    ✗ {e}")
 
 
 if __name__ == "__main__":

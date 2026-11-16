@@ -1,5 +1,29 @@
 # 更新日志
 
+## [2.6] - 2026-11-16
+
+### 修复
+
+- **`verify_rtsp2.py` 每次运行必崩**（高）：写结果时读 `c["case_id"]`，但抽验输入只有 `ip,port,rule_id,url` 四列，必然 `KeyError`——探针跑完了但报告全丢。改用已有列拼接 `case_id`。上游遗留缺陷，前几轮静态审查均未发现，实际跑一次即暴露
+- **四个抽验脚本遇空字段即崩**：CSV 空字段读出来是 `None`（不是 `""`），`c["ip"].strip()` 抛 `AttributeError`；`verify_rtsp2.py` 的 `url.split("://")[1]` 在缺 scheme 时 `IndexError`。现统一安全读取，无效行打印原因后跳过
+- **`exclude_any` 字符串排除词误杀真命中**（高）：`login` 会命中 `login_time`/`last_login`/`loginCount` 这些设备配置常见字段，21 条规则中 13 条受影响。现按形态分策略——纯 ASCII 单词用词边界，中文/符号类用子串（`\b` 对中文和 `<html` 失效，统一词边界会把漏报翻成误报）
+- **并发写入数据一致性**：① 中断导致 findings 重复 → 最终重写按 `(ip,port,rule_id,url)` 去重；② 输入重复行白扫两遍 → `load_targets` 按 `(ip,port)` 去重并报行号；③ 写盘失败（磁盘满/权限）会经 `ex.map` 中止整轮 → 移入 try，失败记 `ERROR` 供续跑重试，台账写失败单独提示
+- **畸形 `Content-Length` 撑爆内存**：服务端声称 100MB 会一直读。现加 64KB 上限（不信任服务端声明）
+- **抽验脚本 OPTIONS 不受节流**（合规）：OPTIONS → 首个 DESCRIBE 之间 0 间隔，`rtsp_probe.py` 更是全程无 sleep 连发。现三处都纳入单 IP ≥1s
+- **`real_data` 判据字段从不赋值**：`verify_newfe_A.py` 算出 `real_ok` 却从不写回报告，所有 confirmed 的 case 都显示 `real_data: false`，与结论自相矛盾
+- **`match_any` 泛词导致大面积误报**（高）：`uid`/`channel`/`user`/`role`/`file` 这类普通页面也有的词，命中任一即算数。新增 `min_hits` 字段（默认 1，向后兼容），对 9 条泛词规则设 `min_hits: 2`
+- `--resume` 在目标全部完成时不再 `exit(1)`，仍会整理去重已有 findings
+
+### 文档
+
+- 新增 [docs/修复说明-2.6.md](docs/修复说明-2.6.md)
+- [规则编写指南](docs/规则编写指南.md)：补 `min_hits` 用法与 `exclude_any` 的三种匹配方式
+
+### 未改动
+
+- SKILL.md 方法论与合规红线
+- 规则字典里各端点的判据语义（只调匹配严格度，不改"什么算命中"的定义）
+
 ## [2.5] - 2026-11-16
 
 ### 修复
@@ -70,4 +94,4 @@ CNVD 通用型未授权漏洞广扫 skill 便携包。
 
 ---
 
-*本项目遵循语义化版本。当前版本：2.5*
+*本项目遵循语义化版本。当前版本：2.6*

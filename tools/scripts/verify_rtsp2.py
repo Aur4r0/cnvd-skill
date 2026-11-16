@@ -71,6 +71,8 @@ def check_one(ip, port, url_base):
     all_paths = STD_PATHS + VAR_PATHS
     cseq = 2
     for path in all_paths:
+        time.sleep(1.0)  # 单 IP 间隔 >=1s; 放在请求之前, 这样 OPTIONS 之后的
+                         # 第一条 DESCRIBE 也不会 0 间隔连发
         u = url_base.rstrip("/") + path if not path.startswith("/") else (url_base.rstrip("/") + path)
         desc_req = (f"DESCRIBE {u} RTSP/1.0\r\nCSeq: {cseq}\r\n"
                     f"Accept: application/sdp\r\n"
@@ -96,7 +98,6 @@ def check_one(ip, port, url_base):
                 best = {"code": code, "sdp": False,
                         "snippet": resp.decode("utf-8", errors="ignore")[:300],
                         "status": first, "path": path}
-        time.sleep(1.0)  # single IP interval >= 1s
     return best
 
 def geo(ip):
@@ -141,20 +142,30 @@ def main():
     n = len(cases)
     print(f"total cases: {n}")
     for i, c in enumerate(cases):
-        ip = c["ip"].strip()
+        # CSV 空字段读出来是 None, 不是 "" —— 直接 .strip() 会 AttributeError
+        ip = (c.get("ip") or "").strip()
+        url = (c.get("url") or "").strip()
+        if not url or not ip:
+            print(f"[{i+1}/{n}] 跳过: url/ip 为空", flush=True)
+            continue
         # url gives port/path; strip scheme
-        url = c["url"].strip()
-        # parse port from url
+        if "://" not in url:
+            print(f"[{i+1}/{n}] 跳过: url 缺 scheme ({url[:60]})", flush=True)
+            continue
         rest = url.split("://", 1)[1]
         hostport, _, path = rest.partition("/")
         if ":" in hostport:
             host, port = hostport.rsplit(":", 1)
-            port = int(port)
+            try:
+                port = int(port)
+            except ValueError:
+                print(f"[{i+1}/{n}] 跳过: url 端口非法 ({hostport})", flush=True)
+                continue
         else:
             host, port = hostport, 554
         # host in url may differ from ip column; trust ip column for connect, url for path
         port_from_url = port
-        port = int(c["port"].strip()) if c["port"].strip() else 554
+        port = int(c["port"].strip()) if (c.get("port") or "").strip() else 554
         # Actually url has the real RTSP port (554), port column is 80 (weird). Use url port.
         port = port_from_url
 
@@ -207,7 +218,8 @@ def main():
                 fail_reason = "连接失败/timeout/refused（端口未开放或不复现）"
 
         results.append({
-            "case_id": c["case_id"].strip(),
+            # c 是输入 CSV 行, 只有 ip/port/rule_id/url 四列, 没有 case_id(必然 KeyError)
+            "case_id": f"{ip}_{port}_{(c.get('rule_id') or '').strip()}",
             "verdict": verdict,
             "checks": {
                 "no_cookie_repro": no_cookie_repro,

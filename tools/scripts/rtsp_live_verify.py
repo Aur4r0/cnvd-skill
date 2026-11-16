@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """RTSP 真拉流验证 v2: DESCRIBE(SDP) -> SETUP -> PLAY -> 收到 RTP 视频包才算 confirmed
-红线: 只读, 不落盘任何画面帧, 只计数 RTP 包"""
+红线: 不落盘任何画面帧, 只计数 RTP 包; 结束后必发 TEARDOWN 释放会话。
+注意: SETUP/PLAY 会建立流媒体会话, 严格说超出只读探测范围(不是修改配置, 但也不是
+GET/OPTIONS/DESCRIBE)。仅在确认授权、且 DESCRIBE 已确认未授权拉流后, 用它做最终确认。"""
 import socket, sys, time
 
 def recv_all_rtsp(s, wait=2.0, min_wait=0.5):
@@ -111,6 +113,12 @@ def verify_stream(ip, port, path='/', timeout=8):
                     i += 4 + pkt_len
                 else:
                     i += 1
+        # 释放会话, 不在目标上留下悬挂的流媒体会话
+        try:
+            s.sendall(f"TEARDOWN {track_url} RTSP/1.0\r\nCSeq: 5\r\n{sess_hdr}\r\n\r\n".encode())
+            recv_all_rtsp(s, wait=1.0)
+        except Exception:
+            pass
         if rtp_pkts >= 10 and video_bytes > 5000:
             return f"LIVE_CONFIRMED pkts={rtp_pkts} bytes={video_bytes} track={track_url}"
         return f"PLAY成功但数据不足 pkts={rtp_pkts} bytes={video_bytes}"

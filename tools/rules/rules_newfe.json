@@ -10,6 +10,7 @@
       "exclude_any": ["login", "unauthorized", "401", "404"],
       "fake_hints": [],
       "min_len": 30,
+      "min_hits": 2,
       "note": "未授权读设备 P2P UID/拓扑, 中危"
     },
     {

@@ -1,4 +1,6 @@
-import socket, sys
+import socket, sys, time
+
+INTERVAL = 1.0   # 单 IP 请求间隔 >=1s（合规红线）
 
 def desc(ip, port=554, path='/'):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -10,7 +12,8 @@ def desc(ip, port=554, path='/'):
         data = s.recv(4096).decode(errors='replace')
         if '200' not in data.split('\r\n')[0]:
             return f"OPTIONS非200: {data.splitlines()[0][:60]}"
-        # 发 DESCRIBE
+        # 发 DESCRIBE（与 OPTIONS 之间保持合规间隔）
+        time.sleep(INTERVAL)
         req = f"DESCRIBE rtsp://{ip}:{port}/{path} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\nUser-Agent: VLC/3.0\r\n\r\n"
         s.send(req.encode())
         s.settimeout(8)
@@ -36,8 +39,15 @@ def desc(ip, port=554, path='/'):
 
 for target in sys.argv[1:]:
     ip, port = target.split(':') if ':' in target else (target, '554')
-    for p in ['/', '/live', '/stream1', '/ch1/main', '/1']:
-        r = desc(ip, int(port), p)
+    try:
+        port = int(port)
+    except ValueError:
+        print(f"{target} -> 跳过: 端口非法")
+        continue
+    for i, p in enumerate(['/', '/live', '/stream1', '/ch1/main', '/1']):
+        if i:
+            time.sleep(INTERVAL)   # 同一目标的后续路径探测之间加间隔
+        r = desc(ip, port, p)
         print(f"{ip}:{port}{p} -> {r}")
         if 'SDP=YES' in r: break
     print()

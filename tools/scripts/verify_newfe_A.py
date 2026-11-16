@@ -130,17 +130,20 @@ def main():
     results = []
     last_ip = None
     for i, c in enumerate(cases):
-        ip = c["ip"].strip()
-        port = c["port"].strip()
-        rule = c["rule_id"].strip()
-        url = c["url"].strip()
+        # CSV 空字段读出来是 None, 不是 "" —— 直接 .strip() 会 AttributeError
+        ip = (c.get("ip") or "").strip()
+        port = (c.get("port") or "").strip()
+        rule = (c.get("rule_id") or "").strip()
+        url = (c.get("url") or "").strip()
+        if not url or not ip:
+            print(f"[{i+1}/{n}] 跳过: url/ip 为空", flush=True)
+            continue
         case_id = f"{ip}_{port}_{rule}"
         print(f"[{i+1}/{n}] {case_id} ...", flush=True)
 
         if last_ip is not None and ip != last_ip:
             time.sleep(1.2)          # 单 IP 间隔
         st, body = http_get(url)
-        headers_note = ""
 
         rec = {
             "case_id": case_id,
@@ -163,6 +166,7 @@ def main():
             else:
                 real_ok, extra, snip = False, f"未知rule_id {rule}", ""
             rec["checks"]["no_cookie_repro"] = True
+            rec["checks"]["real_data"] = bool(real_ok)
             rec["evidence"]["snippet"] = (snip or "")[:200]
         else:
             rec["fail_reason"] = f"HTTP {st}: {str(body)[:120]}"
@@ -191,7 +195,8 @@ def main():
         rec["checks"]["country"] = g.get("countryCode", "")
 
         if repro_ok:
-            rec["checks"]["device_model"] = infer_model(headers_note, body, ip)
+            # http_get 不取响应头, headers_text 传空, 型号只能从 body 推断
+            rec["checks"]["device_model"] = infer_model("", body, ip)
 
         # verdict
         if not repro_ok:

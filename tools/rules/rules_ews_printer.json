@@ -10,6 +10,7 @@
       "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
       "fake_hints": [],
       "min_len": 100,
+      "min_hits": 2,
       "note": "未授权查看/修改 VNC 远程面板配置 → 高危(可开远程接管面板)"
     },
     {
@@ -21,6 +22,7 @@
       "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
       "fake_hints": [],
       "min_len": 100,
+      "min_hits": 2,
       "note": "未授权访问账户管理 → 高危(可创建账户持久化)"
     },
     {
@@ -32,6 +34,7 @@
       "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
       "fake_hints": [],
       "min_len": 100,
+      "min_hits": 2,
       "note": "备份密码/万能钥匙功能未授权暴露 → 高危"
     },
     {
@@ -43,6 +46,7 @@
       "exclude_any": ["login", "unauthorized", "401", "403", "404", "forbidden"],
       "fake_hints": [],
       "min_len": 100,
+      "min_hits": 2,
       "note": "固件升级上传表单未授权可见 → 高危(可刷恶意固件)"
     },
     {

@@ -13,6 +13,7 @@
                       "javascript", "function(", "<html", "<!doctype", "login.html"],
       "fake_hints": ["example", "localhost", "placeholder", "your_", "xxxx"],
       "min_len": 200,
+      "min_hits": 2,
       "note": "响应含真实口令/密钥明文 → 未授权读敏感配置, 高危"
     },
     {
@@ -37,6 +38,7 @@
       "exclude_any": ["login", "unauthorized", "401"],
       "fake_hints": ["example", "localhost"],
       "min_len": 30,
+      "min_hits": 2,
       "note": "API 返回明文口令/密钥/令牌 → 中危起步, 内容更敏感可提级"
     },
     {
@@ -48,6 +50,7 @@
       "exclude_any": ["login", "unauthorized", "401", "404"],
       "fake_hints": [],
       "min_len": 30,
+      "min_hits": 2,
       "note": "未授权枚举全部用户 → 中危"
     },
     {

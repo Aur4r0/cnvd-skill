@@ -24,14 +24,25 @@ ap.add_argument("--csv", default=CSV_PATH, help="输入 CSV")
 ap.add_argument("--out", default=OUT, help="输出 JSON")
 _a = ap.parse_args()
 CSV_PATH, OUT = _a.csv, _a.out
-cases = list(csv.DictReader(open(CSV_PATH, encoding="utf-8-sig")))
+
+
+def field(row, key):
+    """CSV 空字段读出来是 None, 不是 "" —— 直接 .strip() 会 AttributeError"""
+    return (row.get(key) or "").strip()
+
+
+cases = [r for r in csv.DictReader(open(CSV_PATH, encoding="utf-8-sig")) if field(r, "url")]
+skipped = len(list(csv.DictReader(open(CSV_PATH, encoding="utf-8-sig")))) - len(cases)
+if skipped:
+    print(f"== 跳过 {skipped} 行（url 为空）==")
 out = []
 for i, c in enumerate(cases):
-    url = c["url"].strip()
+    url = field(c, "url")
     st, srv, body = http_get(url)
-    out.append({"case": f"{c['ip']}_{c['port']}_{c['rule_id']}", "status": st, "server": srv,
+    out.append({"case": f"{field(c,'ip')}_{field(c,'port')}_{field(c,'rule_id')}",
+                "status": st, "server": srv,
                 "body_head": body[:1200], "body_len": len(body)})
-    print(f"[{i+1}/{len(cases)}] {c['ip']} st={st} server={srv!r} len={len(body)}", flush=True)
+    print(f"[{i+1}/{len(cases)}] {field(c,'ip')} st={st} server={srv!r} len={len(body)}", flush=True)
     time.sleep(1.3)
 
 json.dump(out, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
